@@ -11,7 +11,7 @@ This repository is a **cookiecutter template** that scaffolds a new React app in
 ## What gets generated
 
 ```
-app-template-react-monorepo/
+react-app-s3-deploy-cookiecutter/
 ├── cookiecutter.json
 ├── {{cookiecutter.project_slug}}/
 │   ├── README.md

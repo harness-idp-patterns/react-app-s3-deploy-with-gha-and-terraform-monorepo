@@ -4,8 +4,8 @@ name: E2E React App Provisioning
 identifier: e2e_react_app_provisioning_workflow
 type: workflow
 owner: user:account/todd.parson@harness.io
-projectIdentifier: parson
-orgIdentifier: sandbox
+projectIdentifier: __PROJECT_ID__
+orgIdentifier: __ORG_ID__
 metadata:
   description: |
     Scaffolds a new React app into the DevOps team IAC monorepo, creates a feature branch,
@@ -183,7 +183,7 @@ spec:
       name: Provision React App
       action: trigger:harness-custom-pipeline
       input:
-        url: https://app.harness.io/ng/#/account/EeRjnXTnS4GrLG5VNNJZUw/orgs/sandbox/projects/parson/pipelines/E2E_React_App_Provisioning/executions
+        url: https://app.harness.io/ng/#/account/__ACCOUNT_ID__/orgs/__ORG_ID__/projects/__PROJECT_ID__/pipelines/E2E_React_App_Provisioning/executions
         apikey: ${{ parameters.token }}
         inputset:
           project_name: ${{ parameters.project_name }}

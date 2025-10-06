@@ -54,7 +54,7 @@ spec:
   sourceCode:
     provider: Github
     repoName: {{ cookiecutter.github_monorepo }}
-    connectorRef: account.{{ cookiecutter.connector_ref }}
+    connectorRef: {{ cookiecutter.connector_ref }}
     branch: main
     monoRepo: true
     monoRepoSubDirectoryPath: {{ cookiecutter.project_slug }}

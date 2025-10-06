@@ -1,102 +1,48 @@
-# e2e-provisioning-react-monorepo (Reusable Template)
+# React App → S3 (GHA + Terraform, Monorepo) — Golden Path (Harness IDP Pattern)
 
-This template bundles everything an SE needs to demo and replicate an **end-to-end React app provisioning flow into a monorepo** using **Harness IDP**.
+This repository is a **pre-packaged, reusable solution** that provisions a React static site into a **monorepo**, deploys to **S3/CloudFront** via **GitHub Actions**, and wires up **Harness IDP** workflow + pipeline orchestration.
 
-It includes:
-- **IDP Workflow Form** (the developer-facing IDP form)
-- **Harness Pipeline** (the orchestrator that does the real work)
-- **Cookiecutter Template** (the React app + scaffolding logic)
-- **Monorepo + GitHub Actions** (where code lands, PRs get checked, and infra/app deploys happen)
+## What’s in this repo
 
-It’s designed so SEs can copy this folder, tweak a few config values (connectors, org/project IDs, repo names), and be ready to run within minutes.
+```
+/
+├─ idp-admin/
+│  ├─ idp-pipelines/pipeline.yml     # Parameterized Harness pipeline (orchestrator)
+│  └─ idp-forms/workflow.yml         # IDP workflow form (developer-facing)
+├─ idp-repos/
+│  ├─ react-app-s3-deploy-cookiecutter/   # Cookiecutter template (app + terraform + catalog)
+│  └─ idp-monorepo-example/                # Example monorepo skeleton (GHA, CODEOWNERS, bootstrap)
+├─ scripts/
+│  └─ copy-to-customer-repo.sh       # Copy helper
+└─ README.md
+```
 
----
+### Components
+
+- **IDP Workflow Form** – the developer UI to request a new app.
+- **Harness Pipeline** – orchestrates checks, scaffolding, PR, gates, and catalog registration (optional).
+- **Cookiecutter Template** – React app + Terraform infra + catalog-info.yaml.
+- **Monorepo Example** – GitHub Actions + CODEOWNERS you can copy into a real monorepo.
 
 ## How the pieces fit
 
 ```
-[Developer in IDP]
-      │ chooses "Provision React App" + fills form
-      ▼
-[IDP Workflow Form]
-      │ validates inputs (e.g., repo dropdown, naming)
-      ▼
-[Harness Pipeline]
-      │ 1) checks GH permissions for requester
-      │ 2) scaffolds via Cookiecutter
-      │ 3) opens PR in the monorepo
-      │ 4) (optional) creates Jira/SNOW, waits on approval
-      │ 5) updates PR status checks / merges when ready
-      ▼
-[Monorepo (GitHub)]
-      │ GH Actions run checks/build/plan/apply as applicable
-      │ App/infra created; PR merged to default branch
-      ▼
-[Outputs]
-- New app folder in monorepo
-- Links back to PR, pipeline run, and any tickets
+[Developer in IDP] → fills form
+  → [IDP Workflow] → triggers
+    → [Harness Pipeline] → cookiecutter scaffold → branch → PR → (Jira/SNOW gates) → merge
+      → [GitHub Actions in Monorepo] → build + deploy to S3/CloudFront
+        → [IDP Catalog (optional)] register component after merge
 ```
 
----
+## Quick start for SEs
 
-## What’s included in this folder
+1) **Copy** this pattern into the customer admin repo: `./scripts/copy-to-customer-repo.sh ../<customer>-admin-repo`  
+2) **Replace placeholders** in:
+   - `idp-admin/idp-pipelines/pipeline.yml`  
+   - `idp-admin/idp-forms/workflow.yml`
+3) **Import** the pipeline in Harness; publish the workflow in IDP.
+4) **Run** the workflow and verify PR, checks, and (optional) catalog registration.
 
-```
-/reusable-templates/e2e-provisioning-react-monorepo/
-├─ workflow/                # IDP Workflow (form) YAML
-│  └─ e2e-provisioning-react-monorepo-workflowform.yml
-├─ pipeline/                # Harness pipeline YAML
-│  └─ e2e-provisioning-react-monorepo-pipeline.yml
-├─ cookiecutter/            # Minimal React template (safe defaults)
-│  ├─ cookiecutter.json
-│  └─ {{cookiecutter.project_slug}}/... (src, README, etc.)
-├─ monorepo-examples/       # Example GHA + CODEOWNERS you can copy over
-│  ├─ .github/workflows/
-│  │  ├─ pr-checks.yml
-│  │  └─ infra.yml
-│  └─ CODEOWNERS
-└─ README.md                # (this file)
-```
-
----
-
-## Typical end-to-end flow
-
-1. **Developer** clicks **Provision** in IDP, fills the form (app name, GH username/org/repo, env/region, optional Jira/SNOW).
-2. **Workflow → Pipeline** kicks off:
-   - Validates the user has write access to the monorepo.
-   - Pulls Cookiecutter, renders a new app folder (e.g., `/apps/<slug>/`).
-   - Creates a feature branch and commits the scaffold.
-   - Opens a PR with clear title/body and links back to the pipeline/workflow.
-   - (Optional) Creates Jira/SNOW and **sets a PR status check** that blocks merge until approved.
-3. **GitHub Actions** run on the PR:
-   - Lint/tests/build; optionally terraform/atlantis plan.
-4. **Approvals & Merge**:
-   - When approvals are met (PR + SNOW), the pipeline flips the PR check, and (optionally) merges.
-5. **Post-merge**:
-   - GH Actions deploy (e.g., static site to S3/CloudFront), or infra applies.
-   - Workflow exposes links: Pipeline run, PR, tickets, and (if available) app URL.
-
----
-
-## Quick start for SEs (copy → tweak → run)
-
-1. **Copy this folder** into your shareable repo under `harness_instances/<account_name>`.
-2. **Edit** the 4 files called out above with your org/project/connector/repo names.
-3. **Copy** the example GH workflows + CODEOWNERS into the *target monorepo* (or ensure equivalents already exist).
-4. **Import** the pipeline & workflow into Harness (or `harness-manager` API) and publish the workflow in IDP.
-5. **Test** by provisioning a sample app; verify the PR checks, approvals, and merge behavior.
-
----
-
-## Variables checklist (find & replace)
-
-- `orgIdentifier`, `projectIdentifier`
-- `connectorRef` values: GitHub, Jira, ServiceNow
-- GitHub:
-  - `OWNER` (org), `REPO` (monorepo), `DEFAULT_BRANCH`
-- Paths:
-  - Where to place new app (`/` vs `/apps/<slug>/`)
-- Cookiecutter:
-  - `project_name`, `project_slug`, `github_org`, `github_team`
-
+## Notes
+- The cookiecutter’s `catalog-info.yaml` expects a **full connector ref** (e.g., `account.harnessgithub`), and the pipeline provides it via `connector_ref`.
+- The monorepo example includes `deploy-site.yml` which expects a `project_path` (subfolder) and handles OIDC auth to AWS.

@@ -1,105 +1,199 @@
-# E2E React App Provisioning (Reference Pipeline)
+# E2E React App Provisioning — **Parameterized Pipeline** (Reusable Template)
 
-Provision a React app into a **monorepo** scaffolded from `app-template-react-monorepo`, open a PR, optionally gate with **Jira** and **ServiceNow**, and (optionally) **register the component** in Harness IDP.
+Provision a React app into a **monorepo**, open a PR, optionally gate with **Jira** and **ServiceNow**, and (optionally) **register the component** in Harness IDP — using a **parameterized pipeline** you can drop into any customer project.
 
-> Treat this as a **reference template**. Copy into your project and adjust connector refs, namespaces, and secrets as needed.
-
----
-
-## Flow
-1. (Optional) **Jira**: create tracking Story (toggle with `enable_jira`).
-2. **Derive Vars**: compute branch/app paths and export for downstream steps.
-3. **Access Gate**: ensure requester can commit or create a PR.
-4. **Clone & Branch**: create feature branch on the monorepo.
-5. **Cookiecutter**: scaffold the new app (folder `{{ project_slug }}`) into the monorepo.
-6. **Direct Push**: push to the feature branch (skipped if `testing=yes`).
-7. **Open PR**: create or update a PR with labels and context.
-8. (Optional) **ServiceNow**: create change, wait for approval, update PR status.
-9. (Optional) **Register Component**: import `{{ project_slug }}/catalog-info.yaml` into IDP (`register_component=true`).
+> This README accompanies: `pipeline.yml`  
+> Copy to a customer’s admin repo, replace the `__ALL_CAPS__` placeholders, and import into Harness.
 
 ---
 
-## Prerequisites
+## What’s in this folder
 
-### Connectors
-- **Kubernetes**: e.g. `parsoneks` (delegate connector)
-- **GitHub**: e.g. `parsonghharnessidpsandbox` for clone/push
-- **Jira**: e.g. `account.Harness_JIRA` (if `enable_jira=true`)
-- **ServiceNow**: e.g. `account.ServiceNow_Dev` (if using SNOW stage)
-
-### Secrets
-- **GitHub PAT**: referenced as `gh_token` (scopes: `repo`, and if needed `workflow`)
-- **Harness API Key**: secret used in `Register Component` step, e.g. `parson-api`
-
-> **Security**: Avoid echoing secrets; this pipeline prints only non-sensitive values.
+```
+/idp-admin/idp-pipelines/
+├─ pipeline.yml  # Parameterized pipeline
+└─ README.md     # (this file)
+```
 
 ---
 
-## Monorepo & File Conventions
+## When to use this template
 
-- **Repo**: `<+pipeline.variables.base_repo>` (e.g., `monorepo-idp-example`)
-- **Branch**: `<+pipeline.variables.default_branch>` (default: `main`)
-- **App path** (cookiecutter output): `/<project_slug>/`
-- **Catalog file**: `<project_slug>/catalog-info.yaml`
-- **TechDocs** in app catalog: `backstage.io/techdocs-ref: dir:.` (relative to the app folder)
+- You want a single pipeline that works across customers by replacing **only connector IDs, namespaces, and secrets**.
+- You want to keep **runtime inputs** (project/app specifics) as **pipeline variables**, not hard-coded.
+- You need optional **Jira** and **ServiceNow** gates and (optionally) **IDP catalog registration** after merge.
 
 ---
 
-## Variables
+## Quick start (copy → replace → import → run)
+
+1. **Copy** `pipeline.yml` into the customer admin repo at:
+
+   ```text
+   https://github.com/harness-idp-sandbox/<customer_name>-admin-repo/idp-pipelines/e2e-react-app-provisioning-pipeline.yml
+   ```
+
+2. **Replace ALL placeholders** (search for `__`):  
+   `__PIPELINE_NAME__`, `__PIPELINE_IDENTIFIER__`, `__PROJECT_ID__`, `__ORG_ID__`,  
+   `__JIRA_CONNECTOR__`, `__JIRA_PROJECT_KEY__`, `__K8S_CONNECTOR__`, `__DELEGATE_NAMESPACE__`,  
+   `__DELEGATE_SELECTOR__`, `__REGISTRY_REF__`, `__RUNNER_IMAGE__`, `__REGISTRY_CONNECTOR_FOR_IMAGES__`,  
+   `__GIT_CONNECTOR__`, `__SERVICENOW_CONNECTOR__`, `__COOKIECUTTER_TEMPLATE_URL__`,  
+   `__GITHUB_ORG__`, `__MONOREPO_NAME__`, `__GH_TOKEN_SECRET__`, `__HARNESS_PLATFORM_API_KEY_SECRET__`,  
+   `__CATALOG_GITHUB_CONNECTOR__` (default for Entities Import).
+
+3. **Import** the YAML as a new pipeline in the customer’s Harness project.
+
+4. **Run** it from IDP or straight from Pipelines with the required inputs (see **Variables** below).
+
+---
+
+## End‑to‑end flow
+
+1. (Optional) **Jira** Story — if `enable_jira=true`.
+2. **Derive Vars** — compute feature branch, app folder, URLs; export for downstream steps.
+3. **Access Gate** — validate the requester’s GitHub permissions (fail if `enforce_requestor_access=yes` and they lack write).
+4. **Clone & Branch** — clone monorepo, create feature branch, push.
+5. **Cookiecutter** — scaffold the new app (folder `/<project_slug>/`) into the monorepo.
+6. **Direct Push** — push rendered files to feature branch (skipped when `testing=yes`).
+7. **Open PR** — create or reuse a PR; add labels and an IDP context block.
+8. (Optional) **ServiceNow** — create change, set a **pending** PR status check, wait for approval, then update the check.
+9. (Optional) **Register Component** — after merge, import `<project_slug>/catalog-info.yaml` into IDP Catalog.
+
+---
+
+## Placeholders (must replace)
+
+| Placeholder | What it is | Example |
+|---|---|---|
+| `__PIPELINE_NAME__` / `__PIPELINE_IDENTIFIER__` | Display name & unique ID | `E2E React App Provisioning` / `E2E_React_App_Provisioning` |
+| `__PROJECT_ID__` / `__ORG_ID__` | Harness project/org IDs | `parson` / `sandbox` |
+| `__JIRA_CONNECTOR__` / `__JIRA_PROJECT_KEY__` | Jira connector & project | `account.Harness_JIRA` / `HD` |
+| `__K8S_CONNECTOR__` / `__DELEGATE_NAMESPACE__` | Delegate’s K8s connector / namespace | `parsoneks` / `harness-delegate-ng` |
+| `__DELEGATE_SELECTOR__` | Delegate selector label | `parson-eks-delegate` |
+| `__REGISTRY_REF__` / `__RUNNER_IMAGE__` | Registry ref & runner image | `parson` / `parsontodd/harness-custom-runner:latest` |
+| `__REGISTRY_CONNECTOR_FOR_IMAGES__` | Registry connector used by Container steps | `parsondocker` |
+| `__GIT_CONNECTOR__` | GitHub connector (clone/push) | `parsonghharnessidpsandbox` |
+| `__SERVICENOW_CONNECTOR__` | ServiceNow connector | `account.ServiceNow_Dev` |
+| `__COOKIECUTTER_TEMPLATE_URL__` | Cookiecutter template repo URL | `https://github.com/harness-idp-sandbox/app-template-react-monorepo.git` |
+| `__GITHUB_ORG__` / `__MONOREPO_NAME__` | Target GitHub org / monorepo | `harness-idp-sandbox` / `monorepo-idp-example` |
+| `__GH_TOKEN_SECRET__` | Secret name for GitHub token | `parson-gh-pat` |
+| `__HARNESS_PLATFORM_API_KEY_SECRET__` | Secret name for Platform API key | `parson-api` |
+| `__CATALOG_GITHUB_CONNECTOR__` | Default connector for Entities Import | `account.harnessgithub` |
+
+> Tip: run a find/replace for `__` to ensure you didn’t miss any.
+
+---
+
+## Variables (runtime inputs)
 
 | Name | Type | Default | Purpose |
 |---|---|---|---|
-| project_name | String | (input) | Human app name |
-| project_slug | String | `project_name` lowercased, spaces→`-` | Folder name in monorepo |
-| project_owner | String | `todd.parson@harness.io` | Owner email used in template |
-| project_description | String | `Testing for POC` | App description |
-| gh_org | String | `harness-idp-sandbox` | GitHub org |
-| default_branch | String | `main` | Monorepo default branch |
-| base_repo | String | `monorepo-idp-example` | Monorepo name |
-| new_branch_prefix | String | `feature` | Feature branch prefix |
-| environment_name | String | `dev` | Used by template |
-| aws_region | String | `us-east-1` | Used by template |
-| enable_jira | String (enum) | `false` | Create Jira Story step |
-| github_username | String | "" | Requester GH username (access/assignment) |
-| testing | String (enum) | `no` | Skip DirectPush when `yes` |
-| enforce_requestor_access | String (enum) | `yes` | Fail if requester lacks write |
-| gh_token | Secret | `parson-gh-pat` | GitHub token |
-| github_team | String | `platform-team` | Team for template metadata |
-| connector_ref | String | `IDP_GitHub_Sandbox_for_Testing` | Template connector ref |
-| register_component | String (enum) | `false` | Import component into IDP after merge |
+| `project_name` | String | (input) | Human app name |
+| `project_slug` | String | `project_name` lowercased, spaces→`-` | Folder name in monorepo |
+| `project_owner` | String | `owner@example.com` | Owner email used in template |
+| `project_description` | String | `Testing for POC` | App description |
+| `gh_org` | String | `__GITHUB_ORG__` | GitHub org |
+| `default_branch` | String | `main` | Monorepo default branch |
+| `base_repo` | String | `__MONOREPO_NAME__` | Monorepo name |
+| `new_branch_prefix` | String | `feature` | Feature branch prefix |
+| `environment_name` | String | `dev` | Template input |
+| `aws_region` | String | `us-east-1` | Template input |
+| `enable_jira` | Enum(String) | `false` | Create Jira Story |
+| `github_username` | String | "" | Requester GH username (access/assignment) |
+| `testing` | Enum(String) | `no` | Skip DirectPush when `yes` |
+| `enforce_requestor_access` | Enum(String) | `yes` | Fail if requester lacks write |
+| `gh_token` | Secret | `__GH_TOKEN_SECRET__` | GitHub token (scopes: `repo` [+ `workflow` if GHA needs it]) |
+| `github_team` | String | `platform-team` | Team for template metadata |
+| `connector_ref` | String | `__CATALOG_GITHUB_CONNECTOR__` | Catalog connector for Entities Import |
+| `register_component` | Enum(String) | `false` | Import component into IDP after merge |
+| `platform_api_key` | Secret | `__HARNESS_PLATFORM_API_KEY_SECRET__` | Harness Platform API key for Entities Import |
 
 ---
 
-## Connector Refs in YAML (replace as needed)
+## Connectors & secrets you’ll need
 
-- `parsoneks` → your Kubernetes connector
-- `parson` / `parsondocker` → your container registry refs
-- `parsonghharnessidpsandbox` → your GitHub connector for clone/push
-- `account.Harness_JIRA` and `account.ServiceNow_Dev` as appropriate
+- **Kubernetes**: `__K8S_CONNECTOR__` (delegate’s K8s connector)  
+- **GitHub**: `__GIT_CONNECTOR__` for clone/push; PAT secret referenced by `gh_token`  
+- **Jira** (optional): `__JIRA_CONNECTOR__`  
+- **ServiceNow** (optional): `__SERVICENOW_CONNECTOR__`  
+- **Container registry**: `__REGISTRY_REF__` / `__REGISTRY_CONNECTOR_FOR_IMAGES__` for runner images  
+- **Harness Platform API key**: secret `__HARNESS_PLATFORM_API_KEY_SECRET__` (used by Entities Import)
 
----
-
-## Run Instructions
-
-1. Create a new pipeline in Harness and import `*-pipeline.yml` from this folder.
-2. Ensure the connectors and secrets exist, or update the YAML to your refs.
-3. Provide inputs:
-   - **Required**: `project_name` (derives `project_slug`), `gh_org`, `base_repo`.
-   - **Optional**: toggles like `enable_jira`, `register_component`, `testing`.
-4. Execute. The pipeline will open a PR and (optionally) register the IDP component after merge.
+> **Security**: The pipeline never prints secrets. Ensure PAT scopes are minimal (usually `repo`).
 
 ---
 
-## Failure Modes (Exit Codes)
+## Conventions
 
-- **20**: Requester lacks write access (when `enforce_requestor_access=yes`)
-- **21**: Timeout while waiting for PR merge
-- **22**: Timeout waiting for `catalog-info.yaml` to appear on branch
-- **23**: PR closed without merge
+- **App path**: `/<project_slug>/` (cookiecutter output)
+- **Catalog file**: `<project_slug>/catalog-info.yaml`
+- **Status check**: `servicenow/change-approval` is used to gate merges (if SNOW enabled).
+- **Labels**: `idp`, `scaffold`, `automation`, plus `change:*` labels managed by the pipeline.
 
 ---
 
-## Notes
+## Failure modes (exit codes)
 
-- The `CookieCutter` step points to: `https://github.com/harness-idp-sandbox/app-template-react-monorepo.git`.
-- The `Register Component` step uses Harness Entities Import API with `file_path = <project_slug>/catalog-info.yaml`.
+- **20** — Requester lacks write access (when `enforce_requestor_access=yes`)  
+- **21** — Timeout while waiting for PR merge  
+- **22** — Timeout waiting for `catalog-info.yaml` to appear on the target branch  
+- **23** — PR closed without merge
+
+---
+
+## Troubleshooting
+
+- **“Missing GITHUB_TOKEN”** — Ensure the `gh_token` secret is set and mapped to a PAT with `repo` scope.  
+- **PR status check never flips** — Confirm ServiceNow approval reached *Implement* and the pipeline’s Update PR step ran.  
+- **Cookiecutter render errors** — Sanitize `project_slug` (lowercase, no spaces) or tighten filters in template.  
+- **Requester blocked** — Either add the user to a team with write on the monorepo or set `enforce_requestor_access=no` (warn-only).
+
+---
+
+## Example values (copy/paste)
+
+```yaml
+# Top-level identifiers
+__PIPELINE_NAME__: "E2E React App Provisioning"
+__PIPELINE_IDENTIFIER__: "E2E_React_App_Provisioning"
+__PROJECT_ID__: "parson"
+__ORG_ID__: "sandbox"
+
+# Connectors & infra
+__K8S_CONNECTOR__: "parsoneks"
+__DELEGATE_NAMESPACE__: "harness-delegate-ng"
+__DELEGATE_SELECTOR__: "parson-eks-delegate"
+__REGISTRY_REF__: "parson"
+__REGISTRY_CONNECTOR_FOR_IMAGES__: "parsondocker"
+__RUNNER_IMAGE__: "parsontodd/harness-custom-runner:latest"
+__GIT_CONNECTOR__: "parsonghharnessidpsandbox"
+
+# Integrations
+__JIRA_CONNECTOR__: "account.Harness_JIRA"
+__JIRA_PROJECT_KEY__: "HD"
+__SERVICENOW_CONNECTOR__: "account.ServiceNow_Dev"
+
+# GitHub
+__GITHUB_ORG__: "harness-idp-sandbox"
+__MONOREPO_NAME__: "monorepo-idp-example"
+__COOKIECUTTER_TEMPLATE_URL__: "https://github.com/harness-idp-sandbox/app-template-react-monorepo.git"
+
+# Secrets
+__GH_TOKEN_SECRET__: "parson-gh-pat"
+__HARNESS_PLATFORM_API_KEY_SECRET__: "parson-api"
+__CATALOG_GITHUB_CONNECTOR__: "account.harnessgithub"
+```
+
+---
+
+## Run checklist
+
+- [ ] All `__PLACEHOLDERS__` replaced  
+- [ ] Connectors exist in the target Org/Project  
+- [ ] Secrets created and mapped to variable names in the pipeline  
+- [ ] Branch protection requires `servicenow/change-approval` (if SNOW enabled) and CI checks  
+- [ ] Cookiecutter template repo is reachable by the delegate
+
+---
+
+Happy provisioning! 🚀

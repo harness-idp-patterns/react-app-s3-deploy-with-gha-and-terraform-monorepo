@@ -8,7 +8,7 @@
   "github_org": "{{ cookiecutter.github_org }}",
   "github_repo": "{{ cookiecutter.project_slug }}",
   "environment_name": "{{ cookiecutter.environment_name }}",
-  "github_team": "{{ cookiecutter.platform_team }}",
+  "github_team": "{{ cookiecutter.github_team }}",
   "github_monorepo": "{{ cookiecutter.github_monorepo }}",
   "connector_ref": "{{ cookiecutter.connector_ref }}"
 }
