@@ -1,9 +1,9 @@
 # Harness Pipeline YAML (Reusable Template)
-# Copy this file to: ../../<customer_name_for_the_pov>/e2e-react-app-provisioning-pipeline.yml
-# Then replace all __PLACEHOLDER__ values per PIPELINE-README.md.
+# Copy this file to: https://github.com/harness-idp-sandbox/<customer_name>-admin-repo/idp-pipelines/e2e-react-app-provisioning-pipeline.yml
+# Then replace all __PLACEHOLDER__ values per README.md.
 
 pipeline:
-  name: __PIPELINE_NAME__              # e.g., "OMF – E2E React App Provisioning"
+  name: __PIPELINE_NAME__              # e.g., "E2E React App Provisioning"
   identifier: __PIPELINE_IDENTIFIER__  # must be unique per project
   projectIdentifier: __PROJECT_ID__    # REQUIRED: customer's Harness Project
   orgIdentifier: __ORG_ID__            # REQUIRED: customer's Harness Org
