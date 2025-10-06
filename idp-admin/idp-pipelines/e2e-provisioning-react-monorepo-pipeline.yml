@@ -1,0 +1,157 @@
+# Harness Pipeline YAML (Reusable Template)
+# Copy this file to: ../../<customer_name_for_the_pov>/e2e-react-app-provisioning-pipeline.yml
+# Then replace all __PLACEHOLDER__ values per PIPELINE-README.md.
+
+pipeline:
+  name: __PIPELINE_NAME__              # e.g., "OMF – E2E React App Provisioning"
+  identifier: __PIPELINE_IDENTIFIER__  # must be unique per project
+  projectIdentifier: __PROJECT_ID__    # REQUIRED: customer's Harness Project
+  orgIdentifier: __ORG_ID__            # REQUIRED: customer's Harness Org
+  tags: {}
+  stages:
+    - stage:
+        name: Create Jira
+        identifier: Create_Jira
+        type: Approval
+        spec:
+          execution:
+            steps:
+              - step:
+                  name: Create Jira
+                  identifier: Create_Jira
+                  type: JiraCreate
+                  timeout: 5m
+                  spec:
+                    connectorRef: __JIRA_CONNECTOR__
+                    projectKey: __JIRA_PROJECT_KEY__
+                    issueType: Story
+                    fields:
+                      - name: Summary
+                        value: POV Provisioning - __PROJECT_ID__ - <+pipeline.sequenceId>
+        when:
+          pipelineStatus: Success
+          condition: <+pipeline.variables.enable_jira> == "true"
+
+    - stage:
+        name: App Provisioner
+        identifier: App_Provisioner
+        type: IDP
+        spec:
+          infrastructure:
+            type: KubernetesDirect
+            spec:
+              connectorRef: __K8S_CONNECTOR__
+              namespace: __DELEGATE_NAMESPACE__
+              automountServiceAccountToken: true
+              nodeSelector: {}
+              os: Linux
+          execution:
+            steps:
+              - step:
+                  type: Run
+                  name: Derive Vars
+                  identifier: Derive_Vars
+                  spec:
+                    registryRef: __REGISTRY_REF__
+                    image: __RUNNER_IMAGE__
+                    shell: Bash
+                    command: |
+                      set -euo pipefail
+                      GH_TOKEN="<+pipeline.variables.gh_token>"
+                      GITHUB_TOKEN="<+pipeline.variables.gh_token>"
+                      : "${GH_ORG:?GH_ORG is required}"
+                      : "${MONOREPO_REPO:?MONOREPO_REPO is required}"
+                      : "${PROJECT_SLUG:?PROJECT_SLUG is required}"
+                      DEFAULT_BRANCH="${DEFAULT_BRANCH:-main}"
+                      OWNER_TEAM="${OWNER_TEAM:-platform-team}"
+                      PROJECT_OWNER="${PROJECT_OWNER:-}"
+                      REQUESTOR_GH_USERNAME="${REQUESTOR_GH_USERNAME:-}"
+                      TESTING="${TESTING:-no}"
+                      GIT_AUTHOR_NAME="${GIT_AUTHOR_NAME:-Harness IDP Bot}"
+                      GIT_AUTHOR_EMAIL="${GIT_AUTHOR_EMAIL:-idp-bot@users.noreply.github.com}"
+                      WORKSPACE="${HARNESS_WORKSPACE:-/harness}"
+                      REPO_DIR="${WORKSPACE}/${MONOREPO_REPO}"
+                      NEW_BRANCH_PREFIX="${NEW_BRANCH_PREFIX:-feature}"
+                      SEQ="<+pipeline.sequenceId>"
+                      FEATURE_BRANCH="${FEATURE_BRANCH:-${NEW_BRANCH_PREFIX}/${PROJECT_SLUG}-${SEQ}}"
+                      SRC_DIR="${REPO_DIR}/${PROJECT_SLUG}"
+                      DST_NAME="${DST_NAME:-${PROJECT_SLUG}}"
+                      APP_PATH="/${DST_NAME}/"
+                      BASE_URL="https://github.com/${GH_ORG}/${MONOREPO_REPO}"
+                      BRANCH_URL="${BASE_URL}/tree/${FEATURE_BRANCH}"
+                      export GH_TOKEN GITHUB_TOKEN
+                      export GH_ORG MONOREPO_REPO DEFAULT_BRANCH NEW_BRANCH_PREFIX
+                      export PROJECT_SLUG OWNER_TEAM REQUESTOR_GH_USERNAME TESTING
+                      export GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL
+                      export WORKSPACE REPO_DIR SRC_DIR DST_NAME APP_PATH
+                      export FEATURE_BRANCH BASE_URL BRANCH_URL PROJECT_OWNER
+                    envVariables:
+                      GH_ORG: <+pipeline.variables.gh_org>
+                      MONOREPO_REPO: <+pipeline.variables.base_repo>
+                      DEFAULT_BRANCH: <+pipeline.variables.default_branch>
+                      NEW_BRANCH_PREFIX: <+pipeline.variables.new_branch_prefix>
+                      FEATURE_BRANCH: ""
+                      PROJECT_SLUG: <+pipeline.variables.project_slug>
+                      OWNER_TEAM: <+pipeline.variables.github_team>
+                      REQUESTOR_GH_USERNAME: <+pipeline.variables.github_username>
+                      TESTING: <+pipeline.variables.testing>
+                      GIT_AUTHOR_NAME: Harness IDP Bot
+                      GIT_AUTHOR_EMAIL: idp-bot@users.noreply.github.com
+                      PROJECT_OWNER: <+pipeline.variables.project_owner>
+                  # (other steps omitted for brevity in this template—use the full version you shared)
+          cloneCodebase: false
+  variables:
+    - name: project_name
+      type: String
+      value: <+input>
+    - name: project_slug
+      type: String
+      value: <+pipeline.variables.project_name.toLowerCase().replace(" ", "-")>
+    - name: project_owner
+      type: String
+      value: <+input>.default(owner@example.com)
+    - name: project_description
+      type: String
+      value: <+input>.default(Testing for POC)
+    - name: gh_org
+      type: String
+      value: <+input>.default(__GITHUB_ORG__)
+    - name: default_branch
+      type: String
+      value: <+input>.default(main)
+    - name: base_repo
+      type: String
+      value: <+input>.default(__MONOREPO_NAME__)
+    - name: new_branch_prefix
+      type: String
+      value: <+input>.default(feature)
+    - name: environment_name
+      type: String
+      value: <+input>.default(dev)
+    - name: aws_region
+      type: String
+      value: <+input>.default(us-east-1)
+    - name: enable_jira
+      type: String
+      value: <+input>.default(false).selectOneFrom(true,false)
+    - name: github_username
+      type: String
+      value: <+input>.default("")
+    - name: testing
+      type: String
+      value: <+input>.default(no).selectOneFrom(yes,no)
+    - name: enforce_requestor_access
+      type: String
+      value: <+input>.default(yes).selectOneFrom(yes,no)
+    - name: gh_token
+      type: Secret
+      value: __GH_TOKEN_SECRET__
+    - name: github_team
+      type: String
+      value: platform-team
+    - name: connector_ref
+      type: String
+      value: <+input>.default(__CATALOG_GITHUB_CONNECTOR__)
+    - name: register_component
+      type: String
+      value: <+input>.default(false).selectOneFrom(true,false)

@@ -1,0 +1,65 @@
+# Cookiecutter-rendered catalog definition for Harness IDP 2.0
+# Docs: IDP 2.0 entity schema & fields (identifier/name/type/owner). TechDocs annotation. 
+# - https://developer.harness.io/docs/internal-developer-portal/catalog/catalog-yaml/
+# - https://developer.harness.io/docs/internal-developer-portal/techdocs/enable-docs/
+
+apiVersion: harness.io/v1
+kind: Component
+
+# Machine-friendly unique key
+identifier: {{ cookiecutter.idp_identifier }}
+scope: ACCOUNT
+
+# Human display name
+name: {{ cookiecutter.project_name }}
+
+# Common types: service | library | docs | delegate
+type: service
+
+# Owner can be user or group (e.g., group:platform-team)
+owner: user:account/{{ cookiecutter.project_owner }}
+
+metadata:
+  namespace: default
+  description: {{ cookiecutter.project_description }}
+  annotations:
+    # TechDocs looks inside the app repo for this monorepo
+    backstage.io/techdocs-ref: dir:{{ cookiecutter.project_slug }}
+
+    # Helpful for plugins/deeplinks
+    github.com/project-slug: {{ cookiecutter.github_org }}/{{ cookiecutter.github_monorepo }}
+    # ATTENTION: UNCOMMENT THIS TO CONFIGURE THE GITHUB PLUGIN
+    # github.com/project-readme-path: {{ cookiecutter.project_slug }}
+
+    # Optional direct link to this app folder on default branch
+    backstage.io/source-location: >-
+      url:https://github.com/{{ cookiecutter.github_org }}/{{ cookiecutter.github_monorepo }}/tree/main/{{ cookiecutter.project_slug }}
+
+  links:
+    - title: Source repository
+      url: https://github.com/{{ cookiecutter.github_org }}/{{ cookiecutter.github_monorepo }}
+    - title: App folder (monorepo)
+      url: https://github.com/{{ cookiecutter.github_org }}/{{ cookiecutter.github_monorepo }}/tree/main/{{ cookiecutter.project_slug }}
+    # ATTENTION: OBTAIN THE WEBSITE URL FROM GHA, REPLACE IT BELOW, AND UNCOMMENT THESE LINES.
+    # - title: Website URL
+    #   url: REPLACE_THIS_WITH_THE_GHA_OUTPUT_URL
+
+  tags:
+    - react
+    - monorepo
+    - {{ cookiecutter.environment_name }}
+    
+spec:
+  lifecycle: experimental
+  sourceCode:
+    provider: Github
+    repoName: {{ cookiecutter.github_monorepo }}
+    connectorRef: account.{{ cookiecutter.connector_ref }}
+    branch: main
+    monoRepo: true
+    monoRepoSubDirectoryPath: {{ cookiecutter.project_slug }}
+  # Add relationships later if/when they exist:
+  # dependsOn:
+  #   - component:default/some-backend
+  # providesApis:
+  #   - api:default/{{ cookiecutter.project_slug }}-api

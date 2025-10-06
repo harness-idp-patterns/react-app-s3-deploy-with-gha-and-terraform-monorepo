@@ -1,0 +1,9 @@
+bootstrap/.terraform/*
+bootstrap/terraform.tfstate
+bootstrap/iac-state/terraform/.terraform/*
+bootstrap/oidc/terraform/terraform.tfstate
+bootstrap/**/backend.env
+bootstrap/**/NEXT_STEPS.txt
+bootstrap/.DS_Store
+.DS_Store
+bootstrap/iac-state/terraform/terraform.tfstate

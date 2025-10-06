@@ -1,0 +1,9 @@
+# Default owners for the entire monorepo
+/ @harness-idp-sandbox/platform-team
+
+# Workflows, infra, and shared config
+/.github/ @harness-idp-sandbox/platform-team
+/infra/   @harness-idp-sandbox/platform-team
+/libs/    @harness-idp-sandbox/platform-team
+
+# <<APP-OWNERS>>

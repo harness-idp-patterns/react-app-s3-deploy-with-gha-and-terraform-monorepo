@@ -1,0 +1,227 @@
+# infra.yml
+name: infra
+
+on:
+  push:
+    branches: ['**']
+    paths: ['**/infra/**', '.github/workflows/infra.yml']
+  pull_request:
+    paths: ['**/infra/**', '.github/workflows/infra.yml']
+  workflow_dispatch:
+    inputs:
+      project_path:
+        description: 'App subdir (e.g. my-app)'
+        required: false
+        type: string
+
+permissions:
+  id-token: write
+  contents: write        # needed for POST /dispatches
+  pull-requests: read    # PR file list in detect
+
+concurrency:
+  group: infra-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      project_path: ${{ steps.detect.outputs.project_path }}
+      aws_region:  ${{ steps.region.outputs.region }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+
+      - id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 0) manual override
+          if [[ -n "${{ inputs.project_path || '' }}" ]]; then
+            echo "project_path=${{ inputs.project_path }}" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          FILES=""
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            PR_NUM="${{ github.event.pull_request.number }}"
+            REPO="${{ github.repository }}"
+            TOKEN="${{ github.token }}"
+            PAGE=1
+            while :; do
+              RESP="$(curl -fsS -H "Authorization: Bearer $TOKEN" -H "Accept: application/vnd.github+json" \
+                "https://api.github.com/repos/$REPO/pulls/$PR_NUM/files?per_page=100&page=$PAGE")"
+              CHUNK="$(echo "$RESP" | jq -r '.[].filename')"
+              [[ -z "$CHUNK" ]] && break
+              FILES+=$'\n'"$CHUNK"
+              ((PAGE++))
+            done
+          else
+            RANGE="${{ github.event.before }}...${{ github.sha }}"
+            FILES="$(git diff --name-only "$RANGE")"
+          fi
+
+          # Extract app dir by stripping '/infra/...'
+          APPS="$(echo "$FILES" | awk 'match($0,/(.*)\/infra\/.*/,a){print a[1]}' | sort -u)"
+          N=$(echo "$APPS" | grep -c . || true)
+          if [[ $N -eq 0 ]]; then
+            echo "::notice::No infra changes detected"
+            echo "project_path=" >> "$GITHUB_OUTPUT"
+            exit 0
+          elif [[ $N -gt 1 ]]; then
+            echo "::error::Multiple apps changed: $APPS"
+            exit 1
+          fi
+          echo "project_path=$(echo "$APPS")" >> "$GITHUB_OUTPUT"
+          echo "Detected app: $APPS"
+      - name: Read region from tfvars
+        id: region
+        shell: bash
+        env:
+          APP_DIR: ${{ steps.detect.outputs.project_path }}
+        run: |
+          set -euo pipefail
+          FILE="$APP_DIR/infra/env/terraform.tfvars"
+          REG=""
+          if [[ -f "$FILE" ]]; then
+            REG=$(awk -F= '/^\s*aws_region\s*=/{gsub(/[[:space:]"]/, "", $2); print $2}' "$FILE" | tail -n1)
+          fi
+          echo "region=${REG:-us-east-1}" >> "$GITHUB_OUTPUT"
+
+  plan:
+    needs: detect
+    if: ${{ (github.event_name != 'push' || github.ref != 'refs/heads/main') && needs.detect.outputs.project_path != '' }}
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region:     ${{ needs.detect.outputs.aws_region }}
+      - name: Write backend.hcl (derive org/repo/env)
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          REF="${REF#refs/tags/}"
+          ENV="$REF"
+          [[ -z "$ENV" ]] && ENV="${{ github.ref_name }}"
+          [[ "$ENV" == "main" ]] && ENV="prod"
+          ENV="${ENV//\//-}"
+          APP="${{ needs.detect.outputs.project_path }}"
+          cat > backend.hcl <<EOF
+          bucket         = "${{ secrets.TFSTATE_BUCKET }}"
+          key            = "repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+          region         = "${{ secrets.AWS_REGION }}"
+          dynamodb_table = "${{ secrets.TF_LOCK_TABLE }}"
+          encrypt        = true
+          EOF
+          echo "Using state key: repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+
+      - name: Terraform init (remote backend)
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+        run: terraform init -input=false -backend-config=backend.hcl -lock-timeout=3m
+      - run: terraform fmt -check
+      - run: terraform validate
+      - run: terraform plan -input=false -lock-timeout=3m -var-file=env/terraform.tfvars
+
+  apply:
+    needs: detect
+    if: ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && needs.detect.outputs.project_path != '' }}
+    runs-on: ubuntu-latest
+    environment: production
+    defaults:
+      run:
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region:     ${{ needs.detect.outputs.aws_region }}
+      - name: Write backend.hcl (derive org/repo/env)
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          REF="${REF#refs/tags/}"
+          ENV="$REF"
+          [[ -z "$ENV" ]] && ENV="${{ github.ref_name }}"
+          [[ "$ENV" == "main" ]] && ENV="prod"
+          ENV="${ENV//\//-}"
+          APP="${{ needs.detect.outputs.project_path }}"
+          cat > backend.hcl <<EOF
+          bucket         = "${{ secrets.TFSTATE_BUCKET }}"
+          key            = "repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+          region         = "${{ secrets.AWS_REGION }}"
+          dynamodb_table = "${{ secrets.TF_LOCK_TABLE }}"
+          encrypt        = true
+          EOF
+          echo "Using state key: repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+
+      - name: Terraform init (remote backend)
+        working-directory: ${{ needs.detect.outputs.project_path }}/infra
+        run: terraform init -input=false -backend-config=backend.hcl -lock-timeout=3m
+      - run: terraform apply -auto-approve -input=false -lock-timeout=3m -var-file=env/terraform.tfvars
+      - name: Read TF outputs (bucket, dist, domain)
+        id: tfout
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform output -json > tf_outputs.json || true
+          BUCKET=$(jq -r '.bucket_name.value // empty' tf_outputs.json)
+          DIST=$(jq -r '.cloudfront_distribution.value // empty' tf_outputs.json)
+          DOMAIN=$(jq -r '.cloudfront_domain.value // empty' tf_outputs.json)
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "dist=$DIST"     >> "$GITHUB_OUTPUT"
+          echo "domain=$DOMAIN" >> "$GITHUB_OUTPUT"
+      - name: Show site URL
+        if: ${{ steps.tfout.outputs.domain != '' }}
+        shell: bash
+        run: |
+          URL="https://${{ steps.tfout.outputs.domain }}"
+          echo "::notice::Site URL: ${URL}"
+          {
+            echo "### 🌐 Deployed site"
+            echo ""
+            echo "- **Bucket:** \`${{ steps.tfout.outputs.bucket }}\`"
+            echo "- **CloudFront ID:** \`${{ steps.tfout.outputs.dist }}\`"
+            echo "- **URL:** [${URL}](${URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Trigger deploy-site
+        if: ${{ success() && steps.tfout.outputs.domain != '' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OWNER: ${{ github.repository_owner }}
+          REPO:  ${{ github.event.repository.name }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload=$(jq -n \
+            --arg app    "${{ needs.detect.outputs.project_path }}" \
+            --arg region "${{ needs.detect.outputs.aws_region }}" \
+            --arg bucket "${{ steps.tfout.outputs.bucket }}" \
+            --arg dist   "${{ steps.tfout.outputs.dist }}" \
+            --arg domain "${{ steps.tfout.outputs.domain }}" \
+            '{event_type:"deploy_site",
+              client_payload:{project_path:$app, aws_region:$region,
+                              bucket_name:$bucket, cloudfront_distribution:$dist,
+                              cloudfront_domain:$domain}}')
+          curl -fsS -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$OWNER/$REPO/dispatches" \
+            -d "$payload"

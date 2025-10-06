@@ -1,0 +1,201 @@
+apiVersion: harness.io/v1
+kind: Workflow
+name: E2E React App Provisioning
+identifier: e2e_react_app_provisioning_workflow
+type: workflow
+owner: user:account/todd.parson@harness.io
+projectIdentifier: parson
+orgIdentifier: sandbox
+metadata:
+  description: |
+    Scaffolds a new React app into the DevOps team IAC monorepo, creates a feature branch,
+    commits the scaffolded code, and opens a PR using the E2E_React_App_Provisioning pipeline.
+  actionButton:
+    text: Provision
+spec:
+  output:
+    links:
+      - title: Pipeline Details
+        url: ${{ steps.trigger.output.PipelineUrl }}
+      - title: New Branch URL
+        url: ${{ steps.trigger.output['pipeline.stages.App_Provisioner.spec.execution.steps.Create_Branch.output.outputVariables.BRANCH_URL'] }}
+      - title: PR URL
+        url: ${{ steps.trigger.output['pipeline.stages.App_Provisioner.spec.execution.steps.Open_PR.output.outputVariables.PR_URL'] }}
+  parameters:
+    - title: Details about the new application
+      required:
+        - project_name
+        - project_owner
+      properties:
+        project_name:
+          title: Application Name
+          type: string
+          description: Human-readable name (e.g., “My Cool App”).
+          minLength: 3
+          maxLength: 50
+          pattern: ^[A-Za-z0-9][A-Za-z0-9 _-]*[A-Za-z0-9]$
+          ui:options:
+            placeholder: My Cool App
+            help: Letters/numbers/spaces/dash/underscore; no leading/trailing spaces.
+        project_owner:
+          title: App Owner (email)
+          type: string
+          format: email
+          default: todd.parson@harness.io
+        project_description:
+          title: App Description
+          type: string
+          default: Testing for POC
+        token:
+          title: Harness Token
+          type: string
+          ui:widget: password
+          ui:field: HarnessAuthToken
+    - title: Repository & Branching
+      required:
+        - github_username
+        - repository
+      properties:
+        github_username:
+          title: GitHub Username
+          description: Enter your GitHub username (just the handle, no '@')
+          type: string
+          pattern: ^[A-Za-z0-9-]+$
+          minLength: 1
+          maxLength: 39
+          ui:options:
+            placeholder: octocat
+        repoPicker:
+          title: GitHub Repositories
+          type: string
+          description: Pick a repo you have access to
+          ui:field: SelectFieldFromApi
+          ui:options:
+            path: proxy/github-api/user/repos?per_page=100&affiliation=owner,collaborator,organization_member
+            valueSelector: full_name
+            labelSelector: full_name
+            required: true
+            setContextData:
+              repo_name: name
+              repo_owner: owner.login
+              repo_full_name: full_name
+              default_branch: default_branch
+              visibility: visibility
+        repo_owner:
+          title: Repository Owner / Org
+          readonly: true
+          type: string
+          ui:field: ContextViewer
+          ui:options:
+            getContextData: "{{formContext.repo_owner}}"
+        repository:
+          title: Repo Name
+          readonly: true
+          type: string
+          ui:field: ContextViewer
+          ui:options:
+            getContextData: "{{formContext.repo_name}}"
+        default_branch:
+          title: Default Branch
+          readonly: true
+          type: string
+          ui:field: ContextViewer
+          ui:options:
+            getContextData: "{{formContext.default_branch}}"
+        visibility:
+          title: Visibility
+          readonly: true
+          type: string
+          ui:field: ContextViewer
+          ui:options:
+            getContextData: "{{formContext.visibility}}"
+        new_branch_prefix:
+          title: Branch naming standards
+          description: What's the prefix for your new branches?
+          type: string
+          default: feature
+          pattern: ^[a-z0-9][a-z0-9._-]{1,20}$
+          ui:options:
+            help: Lowercase letters/numbers/.-_; 2–21 chars total.
+    - title: Permissions Check
+      properties:
+        validate_permissions:
+          title: Validate GitHub permissions
+          type: string
+          ui:field: ValidateAndFetch
+          ui:options:
+            button:
+              title: Check my access
+            path: proxy/github-api/repos/{{parameters.repo_owner}}/{{parameters.repository}}/collaborators/{{parameters.github_username}}/permission
+            request:
+              method: GET
+              headers:
+                Accept: application/vnd.github+json
+            setContextData:
+              gh_permission: permission
+              gh_error: message
+        resolved_permission:
+          title: Your repo permission
+          readonly: true
+          type: string
+          ui:field: ContextViewer
+          ui:options:
+            getContextData: "{{formContext.gh_permission}}"
+        permission_hint:
+          title: Heads up
+          type: string
+          readonly: true
+          description: You’ll need at least "write" permission on this repo to create branches/PRs.
+    - title: Environment & Region
+      required:
+        - environment_name
+        - aws_region
+      properties:
+        environment_name:
+          title: Environment Name
+          type: string
+          enum:
+            - dev
+            - qa
+            - prod
+          default: dev
+        aws_region:
+          title: AWS Region
+          type: string
+          enum:
+            - us-east-1
+            - us-east-2
+            - us-west-1
+            - us-west-2
+          default: us-east-1
+    - title: Options
+      properties:
+        enable_jira:
+          title: Create Jira ticket
+          type: boolean
+          default: false
+        register_component:
+          title: Automatically register in the IDP catalog
+          type: boolean
+          default: false
+  steps:
+    - id: trigger
+      name: Provision React App
+      action: trigger:harness-custom-pipeline
+      input:
+        url: https://app.harness.io/ng/#/account/EeRjnXTnS4GrLG5VNNJZUw/orgs/sandbox/projects/parson/pipelines/E2E_React_App_Provisioning/executions
+        apikey: ${{ parameters.token }}
+        inputset:
+          project_name: ${{ parameters.project_name }}
+          project_owner: ${{ parameters.project_owner }}
+          project_description: ${{ parameters.project_description }}
+          gh_org: ${{ parameters.repo_owner }}
+          default_branch: ${{ parameters.default_branch }}
+          base_repo: ${{ parameters.repository }}
+          new_branch_prefix: ${{ parameters.new_branch_prefix }}
+          environment_name: ${{ parameters.environment_name }}
+          aws_region: ${{ parameters.aws_region }}
+          enable_jira: ${{ parameters.enable_jira and "true" or "false" }}
+          register_component: ${{ parameters.register_component and "true" or "false" }}
+          github_username: ${{ parameters.github_username }}
+        showOutputVariables: true

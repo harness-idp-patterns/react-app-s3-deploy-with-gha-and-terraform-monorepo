@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="description" content="{{ cookiecutter.project_description | default('Static site') }}" />
+  <!-- Remove if you want it indexed -->
+  <meta name="robots" content="noindex,nofollow" />
+  <meta name="color-scheme" content="light dark" />
+  <title>{{ cookiecutter.project_name | default('Static Web App') }}</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol"; }
+    body { margin: 0; padding: 2rem; line-height: 1.5; }
+    .card { max-width: 720px; margin: 0 auto; padding: 1.25rem 1.5rem; border-radius: 16px; box-shadow: 0 4px 14px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 .5rem; font-size: clamp(1.5rem, 3vw, 2rem); }
+    .muted { color: #666; }
+    code { background: #f4f4f4; padding: .1rem .35rem; border-radius: 6px; }
+    @media (prefers-color-scheme: dark) {
+      body { background: #0b0c0e; color: #e6e6e6; }
+      .card { background: #131417; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+      .muted { color: #a1a1a1; }
+      code { background: #1b1c20; }
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>{{ cookiecutter.project_name | default('Static Web App') }} 🎉</h1>
+
+    {% if cookiecutter.github_org | default('') and cookiecutter.github_repo | default('') %}
+      <p>Repo:
+        <a class="muted" href="https://github.com/{{ cookiecutter.github_org }}/{{ cookiecutter.github_repo }}"
+           target="_blank" rel="noopener">
+          {{ cookiecutter.github_org }}/{{ cookiecutter.github_repo }}
+        </a>
+      </p>
+    {% endif %}
+
+    <p>Environment: <code>{{ cookiecutter.environment_name | default('dev') }}</code></p>
+  </main>
+</body>
+</html>

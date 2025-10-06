@@ -1,0 +1,14 @@
+{
+  "project_name": "{{ cookiecutter.project_name }}",
+  "project_slug": "{{ cookiecutter.project_name | lower | replace(' ', '-') }}",
+  "idp_identifier": "{{ cookiecutter.project_name | slugify | replace('-', '_') }}",
+  "project_owner": "{{ cookiecutter.project_owner }}",
+  "project_description": "{{ cookiecutter.project_description }}",
+  "aws_region": "{{ cookiecutter.aws_region }}",
+  "github_org": "{{ cookiecutter.github_org }}",
+  "github_repo": "{{ cookiecutter.project_slug }}",
+  "environment_name": "{{ cookiecutter.environment_name }}",
+  "github_team": "{{ cookiecutter.platform_team }}",
+  "github_monorepo": "{{ cookiecutter.github_monorepo }}",
+  "connector_ref": "{{ cookiecutter.connector_ref }}"
+}

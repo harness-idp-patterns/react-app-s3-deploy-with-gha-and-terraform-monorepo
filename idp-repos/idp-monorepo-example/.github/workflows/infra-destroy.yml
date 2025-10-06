@@ -1,0 +1,121 @@
+name: infra-destroy
+
+on:
+  workflow_dispatch:
+    inputs:
+      project_path:
+        description: 'App subdir (e.g., apps/my-react-app)'
+        required: true
+        type: string
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  destroy:
+    runs-on: ubuntu-latest
+    env:
+      PROJECT_PATH: ${{ inputs.project_path }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Sanity check project path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d "${PROJECT_PATH}/infra" || { echo "::error::No infra dir at ${PROJECT_PATH}/infra"; exit 1; }
+
+      - name: Normalize slug (optional)
+        id: slug
+        shell: bash
+        run: |
+          set -euo pipefail
+          slug="$(basename "$PROJECT_PATH")"
+          echo "slug=$slug" >> "$GITHUB_OUTPUT"
+
+      - name: AWS Credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_GHA_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.9.x
+
+      - name: Write backend.hcl (derive org/repo/env)
+        working-directory: ${{ env.PROJECT_PATH }}/infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          ORG="${{ github.repository_owner }}"
+          REPO="${{ github.event.repository.name }}"
+          REF="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+          REF="${REF#refs/tags/}"
+          ENV="$REF"
+          [[ -z "$ENV" ]] && ENV="${{ github.ref_name }}"
+          [[ "$ENV" == "main" ]] && ENV="prod"
+          ENV="${ENV//\//-}"   # sanitize branch slashes
+          APP="${{ env.PROJECT_PATH }}"
+          cat > backend.hcl <<EOF
+          bucket         = "${{ secrets.TFSTATE_BUCKET }}"
+          key            = "repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+          region         = "${{ secrets.AWS_REGION }}"
+          dynamodb_table = "${{ secrets.TF_LOCK_TABLE }}"
+          encrypt        = true
+          EOF
+          echo "Using state key: repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+
+      - name: Terraform init (remote backend)
+        working-directory: ${{ env.PROJECT_PATH }}/infra
+        run: terraform init -input=false -backend-config=backend.hcl -lock-timeout=3m
+
+      - name: Terraform destroy
+        working-directory: ${{ env.PROJECT_PATH }}/infra
+        run: terraform destroy -auto-approve -input=false -lock-timeout=3m -var-file=env/terraform.tfvars
+
+      - name: Read TF outputs (pre-destroy)
+        id: tfout
+        working-directory: ${{ env.PROJECT_PATH }}/infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          terraform output -json > tf_outputs.json || true
+          BUCKET=$(jq -r '.bucket_name.value // empty' tf_outputs.json)
+          DIST=$(jq -r '.cloudfront_distribution.value // empty' tf_outputs.json)
+          DOMAIN=$(jq -r '.cloudfront_domain.value // empty' tf_outputs.json)
+          echo "bucket=$BUCKET" >> "$GITHUB_OUTPUT"
+          echo "dist=$DIST"     >> "$GITHUB_OUTPUT"
+          echo "domain=$DOMAIN" >> "$GITHUB_OUTPUT"
+
+      - name: Show site URL (pre-destroy)
+        if: ${{ steps.tfout.outputs.domain != '' }}
+        shell: bash
+        run: |
+          URL="https://${{ steps.tfout.outputs.domain }}"
+          echo "::notice::Destroying site at ${URL}"
+          {
+            echo "### 🗑️ Destroying stack"
+            echo "- **Bucket:** \`${{ steps.tfout.outputs.bucket }}\`"
+            echo "- **CloudFront ID:** \`${{ steps.tfout.outputs.dist }}\`"
+            echo "- **URL:** [${URL}](${URL})"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Optional: delete the state object after destroy (use only if you know the state is no longer needed)
+      # - name: Delete state object from S3 (optional)
+      #   shell: bash
+      #   run: |
+      #     set -euo pipefail
+      #     ORG="${{ github.repository_owner }}"
+      #     REPO="${{ github.event.repository.name }}"
+      #     REF="${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}"
+      #     REF="${REF#refs/tags/}"
+      #     ENV="$REF"
+      #     [[ -z "$ENV" ]] && ENV="${{ github.ref_name }}"
+      #     [[ "$ENV" == "main" ]] && ENV="prod"
+      #     ENV="${ENV//\//-}"
+      #     APP="${{ env.PROJECT_PATH }}"
+      #     KEY="repos/${ORG}/${REPO}/${ENV}/${APP}/terraform.tfstate"
+      #     aws s3 rm "s3://${{ secrets.TFSTATE_BUCKET }}/${KEY}" --region "${{ secrets.AWS_REGION }}" || true
