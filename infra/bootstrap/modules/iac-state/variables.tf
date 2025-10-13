@@ -1,13 +1,14 @@
+#variables.tf 
 variable "region" {
   description = "AWS region for the state bucket and lock table"
   type        = string
   default     = "us-east-1"
 }
 
-variable "bucket_name_prefix" {
+variable "bucket_prefix" {
   description = "Prefix for the TF state bucket; a random suffix is added"
   type        = string
-  default     = "harnesspov-tfstate"
+  default     = "tfstate"
 }
 
 variable "lock_table_name" {
@@ -16,10 +17,19 @@ variable "lock_table_name" {
   default     = "tfstate-locks"
 }
 
-variable "key_prefix" {
+variable "tags" {
+  description = "Common tags"
+  type        = map(string)
+  default = {
+    Project = "terraform-backend"
+    Owner   = "HarnessPOV"
+  }
+}
+
+variable "state_key_prefix" {
   description = "Key prefix for state files (e.g., per-repo/monorepo)"
   type        = string
-  default     = "monorepo"
+  default     = "repos/<org>/<repo>"
 }
 
 variable "use_kms" {
@@ -34,11 +44,12 @@ variable "kms_alias" {
   default     = "alias/tfstate"
 }
 
-variable "tags" {
-  description = "Common tags"
-  type        = map(string)
-  default = {
-    Project = "terraform-backend"
-    Owner   = "HarnessPOV"
-  }
+variable "force_destroy" { 
+  type = bool    
+  default = false  # keep off by default
+}
+
+variable "kms_key_arn" { 
+  type = string  
+  default = "" 
 }

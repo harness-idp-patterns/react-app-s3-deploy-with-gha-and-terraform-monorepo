@@ -6,6 +6,7 @@ TF_DIR="${ROOT}/terraform"
 
 : "${AWS_REGION:=us-east-1}"
 : "${USE_KMS:=false}"
+: "${STATE_KEY_PREFIX_OVERRIDE:=}"   # allow caller to pass this
 
 # --- Preflight: ensure AWS creds are live
 if ! aws sts get-caller-identity >/dev/null 2>&1; then
@@ -15,12 +16,30 @@ if ! aws sts get-caller-identity >/dev/null 2>&1; then
   exit 1
 fi
 
-# --- Provision backend infra
+# --- Derive org/repo slug (for the recommended prefix) BEFORE TF apply
+derive_slug() {
+  local url
+  url="$(git -C "${ROOT}/../.." config --get remote.origin.url 2>/dev/null || true)"
+  # Matches both git@github.com:org/repo.git and https://github.com/org/repo(.git)
+  if [[ "$url" =~ github\.com[:/]+([^/]+)/([^/.]+) ]]; then
+    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+  fi
+}
+SLUG="$(derive_slug || true)"
+
+# Recommended default: repos/<org>/<repo>
+STATE_KEY_PREFIX_DEFAULT="repos/${SLUG:-<org>/<repo>}"
+if [[ -n "$STATE_KEY_PREFIX_OVERRIDE" ]]; then
+  STATE_KEY_PREFIX_DEFAULT="$STATE_KEY_PREFIX_OVERRIDE"
+fi
+
+# --- Provision backend infra (now with the exact state_key_prefix)
 pushd "${TF_DIR}" >/dev/null
-  terraform init
-  terraform apply -auto-approve \
+  terraform init -input=false
+  terraform apply -auto-approve -input=false \
     -var "region=${AWS_REGION}" \
-    -var "use_kms=${USE_KMS}"
+    -var "use_kms=${USE_KMS}" \
+    -var "state_key_prefix=${STATE_KEY_PREFIX_DEFAULT}"
   BUCKET=$(terraform output -raw bucket)
   TABLE=$(terraform output -raw dynamodb_table)
   REGION=$(terraform output -raw region)
@@ -36,21 +55,7 @@ cat > "${ROOT}/backend.hcl.tpl" <<EOF
 ${BACKEND_EXAMPLE}
 EOF
 
-# --- Also write a simpler recommended template (stable key prefix)
-# Try to derive org/repo from the current git remote
-derive_slug() {
-  local url
-  url="$(git -C "${ROOT}/../.." config --get remote.origin.url 2>/dev/null || true)"
-  # Matches both git@github.com:org/repo.git and https://github.com/org/repo(.git)
-  if [[ "$url" =~ github\.com[:/]+([^/]+)/([^/.]+) ]]; then
-    echo "${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
-  fi
-}
-SLUG="$(derive_slug || true)"
-
-# Recommended default: repos/<org>/<repo>
-STATE_KEY_PREFIX_DEFAULT="repos/${SLUG:-<org>/<repo>}"
-
+# --- Write the recommended template (stable key prefix)
 cat > "${ROOT}/backend.hcl.recommended.tpl" <<EOF
 bucket         = "${BUCKET}"
 key            = "${STATE_KEY_PREFIX_DEFAULT}/<app-path>/terraform.tfstate"

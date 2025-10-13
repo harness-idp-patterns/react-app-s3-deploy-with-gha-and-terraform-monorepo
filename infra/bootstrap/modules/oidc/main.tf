@@ -1,15 +1,38 @@
+#main.tf
 # Create GitHub OIDC provider if your account doesn't have it yet
 # Thumbprints are managed by AWS provider; update if ever needed.
+# Optionally create the account-level GitHub OIDC provider
 resource "aws_iam_openid_connect_provider" "github" {
+  count           = var.create_oidc_provider ? 1 : 0
   url             = "https://token.actions.githubusercontent.com"
   client_id_list  = ["sts.amazonaws.com"]
-  thumbprint_list = ["6938fd4d98bab03faadb97b34396831e3780aea1"] # GitHub Actions OIDC root CA at time of writing
+  thumbprint_list = var.oidc_thumbprint_list
+  tags            = var.tags
 }
 
-# 2) Trust policy for GitHub → IAM role
+resource "aws_iam_role" "gha_oidc" {
+  name                 = var.role_name
+  description          = "Role assumed by GitHub Actions via OIDC for ${var.github_org}/${var.github_repo != "" ? var.github_repo : "*"}"
+  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
+  max_session_duration = var.session_duration_seconds
+  tags                 = var.tags
+}
+
+# Choose provider ARN (created or pre-existing)
 locals {
+  oidc_provider_arn = var.create_oidc_provider
+    ? aws_iam_openid_connect_provider.github[0].arn
+    : var.existing_oidc_provider_arn
   repo_selector = trim(var.github_repo) != "" ? "repo:${var.github_org}/${var.github_repo}" : "repo:${var.github_org}/*"
-  sub_patterns  = [for r in var.allowed_refs : "${local.repo_selector}:ref:${r}"]
+
+  # If subject starts with "refs/", format as "...:ref:<ref>".
+  # Otherwise pass it through verbatim (e.g., "pull_request", "environment:dev").
+  subject_patterns = [
+    for s in var.allowed_subjects :
+      startswith(s, "refs/")
+      ? "${local.repo_selector}:ref:${s}"
+      : "${local.repo_selector}:${s}"
+  ]
 }
 
 data "aws_iam_policy_document" "assume_role" {
@@ -17,28 +40,24 @@ data "aws_iam_policy_document" "assume_role" {
     sid     = "GitHubOIDCAssumeRole"
     effect  = "Allow"
     actions = ["sts:AssumeRoleWithWebIdentity"]
+
     principals {
       type        = "Federated"
-      identifiers = [aws_iam_openid_connect_provider.github.arn]
+      identifiers = [local.oidc_provider_arn]
     }
+
     condition {
       test     = "StringEquals"
       variable = "token.actions.githubusercontent.com:aud"
       values   = ["sts.amazonaws.com"]
     }
+
     condition {
       test     = "StringLike"
       variable = "token.actions.githubusercontent.com:sub"
-      values   = local.sub_patterns
+      values   = local.subject_patterns
     }
   }
-}
-
-resource "aws_iam_role" "gha_oidc" {
-  name                 = var.role_name
-  assume_role_policy   = data.aws_iam_policy_document.assume_role.json
-  max_session_duration = var.session_duration_seconds
-  description          = "Role assumed by GitHub Actions via OIDC for ${var.github_org}/${var.github_repo != "" ? var.github_repo : "*"}"
 }
 
 # Attach optional backend access (S3+DDB)
